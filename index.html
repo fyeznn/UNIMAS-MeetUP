@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UNIMAS MeetUp Prototype</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons (Must be loaded before the script tries to call createIcons) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Apply Inter font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fc;
+        }
+        /* Custom scrollbar for better mobile feel */
+        .scrollable-content::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+        .app-screen {
+            min-height: 100vh;
+        }
+        .btn-primary {
+            @apply bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-blue-700 transition duration-150;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="max-w-md mx-auto bg-white shadow-2xl app-screen relative">
+    <!-- Content goes here -->
+</div>
+
+<!-- Modal Container -->
+<div id="modal-container" class="hidden fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4" onclick="handleModalClick(event)">
+    <div id="modal-content" class="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 transform transition-all duration-300 scale-95 opacity-0">
+        <!-- Modal Content Here -->
+    </div>
+</div>
+
+<script>
+    // --- Global Data and State ---
+    let currentView = 'landing'; // 'landing', 'student_dashboard', 'lecturer_dashboard'
+    let userRole = null; // 'student', 'lecturer'
+    let selectedLecturer = null;
+    let selectedSlot = null;
+    let isModalOpen = false;
+    let selectedFaculty = 'All'; // New state for faculty filtering
+
+    // Updated Simulated Faculty Data
+    const faculties = ['FCSIT', 'FEB', 'FACA', 'FENG'];
+    const loggedInLecturerId = 1; // Assuming Lecturer Dr. Ahmad Zaini (ID 1) is logged in.
+    
+    const lecturers = [
+        { id: 1, name: 'Dr. Ahmad Zaini', faculty: 'FCSIT', title: 'Senior Lecturer', photo: 'https://placehold.co/100x100/7c3aed/ffffff?text=AZ' },
+        { id: 2, name: 'Assoc. Prof. Dr. Lee Mei Ling', faculty: 'FEB', title: 'Academic Advisor', photo: 'https://placehold.co/100x100/10b981/ffffff?text=LM' },
+        { id: 3, name: 'Ms. Siti Hawa', faculty: 'FACA', title: 'Tutor', photo: 'https://placehold.co/100x100/f59e0b/ffffff?text=SH' },
+        { id: 4, name: 'Dr. Chong W. S.', faculty: 'FENG', title: 'Associate Professor', photo: 'https://placehold.co/100x100/507d8c/ffffff?text=CW' },
+        { id: 5, name: 'Puan Halimah B.', faculty: 'FCSIT', title: 'Lecturer', photo: 'https://placehold.co/100x100/e9a2b7/ffffff?text=HB' },
+    ];
+
+    const availability = {
+        1: [ // Slots for Dr. Ahmad Zaini (ID 1)
+            { id: 's1', day: 'Wed, Oct 25', time: '10:00 AM', type: 'Zoom' },
+            { id: 's2', day: 'Wed, Oct 25', time: '11:00 AM', type: 'In-person' },
+            { id: 's3', day: 'Thu, Oct 26', time: '02:00 PM', type: 'Phone' },
+        ],
+        2: [
+            { id: 's4', day: 'Fri, Oct 27', time: '09:30 AM', type: 'In-person' },
+            { id: 's5', day: 'Fri, Oct 27', time: '10:30 AM', type: 'Zoom' },
+        ],
+        3: [],
+        4: [
+            { id: 's6', day: 'Mon, Oct 30', time: '03:00 PM', type: 'In-person' },
+        ],
+        5: [
+            { id: 's7', day: 'Tue, Oct 31', time: '09:00 AM', type: 'Zoom' },
+        ]
+    };
+
+    let appointments = [
+        { id: 'a1', lecturerId: 1, lecturerName: 'Dr. Ahmad Zaini', day: 'Wed, Oct 25', time: '10:00 AM', student: 'Ali Bin Kasim (19001)', type: 'Zoom', purpose: 'Discussing final year project proposal.', status: 'Booked' },
+        { id: 'a2', lecturerId: 1, lecturerName: 'Dr. Ahmad Zaini', day: 'Thu, Oct 26', time: '02:00 PM', student: 'Chin Wei (19002)', type: 'Phone', purpose: 'Seeking advice on course selection.', status: 'Booked' },
+        { id: 'a3', lecturerId: 2, lecturerName: 'Assoc. Prof. Dr. Lee Mei Ling', day: 'Fri, Oct 27', time: '09:30 AM', student: 'Nurul Izzah (19003)', type: 'In-person', purpose: 'Reviewing assignment 1 feedback.', status: 'Pending' },
+    ];
+    
+    // Hardcoded current student for simulation
+    const currentStudent = { id: '190001', name: 'Current Student' };
+
+    // --- DOM Elements ---
+    const app = document.getElementById('app');
+    const modalContainer = document.getElementById('modal-container');
+    const modalContent = document.getElementById('modal-content');
+
+    // --- Utility Functions ---
+
+    /** * Renders the standard Lucide icon markup (i tag with data-lucide attribute). 
+     * Lucide's createIcons() function must be called after insertion to convert this to an SVG.
+     */
+    const getIcon = (name, className = 'w-5 h-5') => {
+        return `<i data-lucide="${name}" class="${className}"></i>`;
+    };
+
+
+    /** Opens and populates the modal */
+    const openModal = (htmlContent) => {
+        modalContent.innerHTML = htmlContent;
+        modalContainer.classList.remove('hidden');
+        // Animate in
+        setTimeout(() => {
+            modalContent.classList.remove('scale-95', 'opacity-0');
+            modalContent.classList.add('scale-100', 'opacity-100');
+            // IMPORTANT: Render icons inside the newly opened modal
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+                lucide.createIcons();
+            }
+        }, 10);
+        isModalOpen = true;
+    };
+
+    /** Closes the modal */
+    const closeModal = () => {
+        // Animate out
+        modalContent.classList.remove('scale-100', 'opacity-100');
+        modalContent.classList.add('scale-95', 'opacity-0');
+        setTimeout(() => {
+            modalContainer.classList.add('hidden');
+            modalContent.innerHTML = '';
+        }, 300);
+        isModalOpen = false;
+        selectedLecturer = null;
+        selectedSlot = null;
+    };
+    
+    /** Handle click outside the modal content to close it */
+    const handleModalClick = (e) => {
+        if (e.target.id === 'modal-container') {
+            closeModal();
+        }
+    };
+
+    /** Handles non-blocking error display inside the modal */
+    const showModalError = (message) => {
+        let errorElement = modalContent.querySelector('#modal-error');
+        if (!errorElement) {
+             errorElement = document.createElement('p');
+             errorElement.id = 'modal-error';
+             errorElement.className = 'text-red-600 text-sm mt-2 font-semibold text-center';
+             // Find a sensible place to insert the error, typically before the main action button
+             const button = modalContent.querySelector('button[onclick*="submit"], button[onclick*="confirm"]');
+             if (button) {
+                button.before(errorElement);
+             } else {
+                modalContent.appendChild(errorElement);
+             }
+        }
+        errorElement.textContent = message;
+        
+        setTimeout(() => {
+            if (errorElement) errorElement.textContent = '';
+        }, 3000);
+    };
+
+
+    // --- Renderer Functions ---
+
+    const renderHeader = (title) => {
+        const lecturerInfo = lecturers.find(l => l.id === loggedInLecturerId);
+        const userDisplay = userRole === 'student' ? 
+            `${currentStudent.name} (${currentStudent.id})` : 
+            `${lecturerInfo ? lecturerInfo.name : 'Lecturer'} (Staff ID: AZ987)`;
+            
+        return `
+            <header class="p-5 bg-white shadow-sm sticky top-0 z-40">
+                <h1 class="text-2xl font-extrabold text-blue-800">${title}</h1>
+                <p class="text-xs text-gray-500 mt-1">Logged in as: ${userDisplay}</p>
+            </header>
+        `;
+    }
+
+    const renderNavBar = (role) => {
+        const studentNav = `
+            <button onclick="setView('student_dashboard')" class="flex-1 flex flex-col items-center justify-center p-2 ${currentView === 'student_dashboard' && !currentView.includes('appointment') ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'}">
+                ${getIcon('calendar-check', 'w-6 h-6')}
+                <span class="text-xs mt-1 font-medium">Book</span>
+            </button>
+            <button onclick="renderStudentAppointments()" class="flex-1 flex flex-col items-center justify-center p-2 ${currentView === 'student_appointments' ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'}">
+                ${getIcon('list-checks', 'w-6 h-6')}
+                <span class="text-xs mt-1 font-medium">My Meetings</span>
+            </button>
+        `;
+        const lecturerNav = `
+            <button onclick="renderLecturerAvailability()" class="flex-1 flex flex-col items-center justify-center p-2 ${currentView === 'lecturer_dashboard' ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'}">
+                ${getIcon('calendar-plus', 'w-6 h-6')}
+                <span class="text-xs mt-1 font-medium">Set Slots</span>
+            </button>
+            <button onclick="renderLecturerAppointments()" class="flex-1 flex flex-col items-center justify-center p-2 ${currentView === 'lecturer_appointments' ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'}">
+                ${getIcon('users', 'w-6 h-6')}
+                <span class="text-xs mt-1 font-medium">Appointments</span>
+            </button>
+        `;
+
+        return `
+            <footer class="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 z-50 rounded-t-xl shadow-2xl">
+                <div class="flex justify-around items-center h-16">
+                    ${role === 'student' ? studentNav : lecturerNav}
+                    <button onclick="logout()" class="flex-1 flex flex-col items-center justify-center p-2 text-red-500 hover:text-red-700">
+                        ${getIcon('log-out', 'w-6 h-6')}
+                        <span class="text-xs mt-1 font-medium">Logout</span>
+                    </button>
+                </div>
+            </footer>
+        `;
+    };
+
+    // --- Landing Screen (Login Selection) ---
+    const renderLanding = () => {
+        app.innerHTML = `
+            <div class="flex flex-col items-center justify-center min-h-screen p-8 text-center bg-gradient-to-br from-blue-100 to-indigo-200">
+                ${getIcon('graduation-cap', 'w-16 h-16 text-blue-600 mb-4')}
+                <h2 class="text-4xl font-extrabold text-blue-800 mb-2">UNIMAS MeetUp</h2>
+                <p class="text-gray-600 mb-8">Smart Scheduling for Academic Success.</p>
+                
+                <div id="login-form-card" class="bg-white p-6 md:p-8 rounded-2xl shadow-2xl w-full max-w-sm space-y-5">
+                    
+                    <h3 class="text-xl font-bold text-gray-800 border-b pb-3 mb-4">Secure Sign In</h3>
+
+                    <div>
+                        <label for="user-id" class="block text-left text-sm font-medium text-gray-700">Student ID / Staff ID</label>
+                        <input type="text" id="user-id" value="190001" placeholder="e.g., 190001 or AZ987" class="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-blue-500 focus:border-blue-500 transition">
+                    </div>
+
+                    <div>
+                        <label for="password" class="block text-left text-sm font-medium text-gray-700">Password</label>
+                        <input type="password" id="password" value="password" placeholder="••••••••" class="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-blue-500 focus:border-blue-500 transition">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-left text-sm font-medium text-gray-700 mb-2">Select Role</label>
+                        <div class="flex justify-between space-x-3">
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="role" value="student" id="role-student" class="hidden peer" checked>
+                                <div class="p-3 text-center border-2 border-gray-300 rounded-xl transition hover:border-blue-500 peer-checked:border-blue-600 peer-checked:bg-blue-50 peer-checked:text-blue-600 shadow-sm">
+                                    ${getIcon('user', 'w-5 h-5 mx-auto mb-1')}
+                                    <span class="text-sm font-semibold">Student</span>
+                                </div>
+                            </label>
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="role" value="lecturer" id="role-lecturer" class="hidden peer">
+                                <div class="p-3 text-center border-2 border-gray-300 rounded-xl transition hover:border-indigo-500 peer-checked:border-indigo-600 peer-checked:bg-indigo-50 peer-checked:text-indigo-600 shadow-sm">
+                                    ${getIcon('briefcase', 'w-5 h-5 mx-auto mb-1')}
+                                    <span class="text-sm font-semibold">Lecturer</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <p id="login-error" class="text-red-600 text-sm hidden"></p>
+
+                    <button onclick="handleLogin()" class="btn-primary w-full mt-4 bg-blue-600 hover:bg-blue-700 flex items-center justify-center">
+                        ${getIcon('log-in', 'w-5 h-5 mr-2')}
+                        Sign In
+                    </button>
+                    <p class="text-xs text-gray-400 mt-4 text-center">Student: 190001/password | Lecturer: AZ987/password</p>
+                    
+                </div>
+            </div>
+        `;
+        // IMPORTANT FIX: Call createIcons immediately after rendering new HTML content
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    };
+
+    /** Handles the dummy login form submission */
+    window.handleLogin = () => {
+        const userId = document.getElementById('user-id')?.value.trim();
+        const password = document.getElementById('password')?.value.trim();
+        const selectedRole = document.querySelector('input[name="role"]:checked')?.value;
+        const errorElement = document.getElementById('login-error');
+        
+        errorElement.classList.add('hidden'); // Reset error state
+
+        if (!userId || !password || !selectedRole) {
+            errorElement.textContent = 'Please enter both ID and Password, and select your role.';
+            errorElement.classList.remove('hidden');
+            return;
+        }
+
+        // --- Dummy Authentication Logic ---
+        let loginSuccess = false;
+        let errorMessage = '';
+
+        if (selectedRole === 'student') {
+            if (userId === '190001' && password === 'password') {
+                loginSuccess = true;
+            } else {
+                errorMessage = 'Invalid Student ID or Password.';
+            }
+        } else if (selectedRole === 'lecturer') {
+            if (userId === 'AZ987' && password === 'password') {
+                loginSuccess = true;
+            } else {
+                errorMessage = 'Invalid Staff ID or Password.';
+            }
+        }
+
+        if (loginSuccess) {
+            login(selectedRole); 
+        } else {
+            errorElement.textContent = errorMessage || 'Login failed. Please check your credentials.';
+            errorElement.classList.remove('hidden');
+        }
+    };
+
+    // --- Student View Functions ---
+    
+    // New function to handle faculty filtering
+    window.filterLecturers = (faculty) => {
+        selectedFaculty = faculty;
+        renderLecturerList(); // Re-render the list with the new filter
+    };
+
+    window.renderLecturerList = () => {
+        currentView = 'student_dashboard';
+        
+        // Apply filtering logic
+        const filteredLecturers = selectedFaculty === 'All' 
+            ? lecturers
+            : lecturers.filter(l => l.faculty === selectedFaculty);
+        
+        const listHtml = filteredLecturers.map(l => {
+            const hasSlots = availability[l.id] && availability[l.id].length > 0;
+            return `
+                <div class="flex items-center p-4 bg-white rounded-xl shadow-md mb-3 border-l-4 ${hasSlots ? 'border-green-500' : 'border-gray-300'}">
+                    <img src="${l.photo}" alt="${l.name}" class="w-12 h-12 rounded-full object-cover mr-4">
+                    <div class="flex-1">
+                        <h3 class="font-bold text-gray-800">${l.name}</h3>
+                        <p class="text-sm text-gray-500">${l.title} - ${l.faculty}</p>
+                    </div>
+                    <button onclick="viewLecturerSlots(${l.id})" class="bg-blue-500 text-white text-xs font-semibold py-2 px-4 rounded-full hover:bg-blue-600 transition">
+                        ${hasSlots ? 'Book' : 'No Slots'}
+                    </button>
+                </div>
+            `;
+        }).join('') || `<p class="text-center text-gray-500 p-8 bg-gray-50 rounded-xl mt-4">No lecturers found in ${selectedFaculty}.</p>`;
+
+        app.innerHTML = `
+            ${renderHeader('Book a MeetUp')}
+            <div class="p-5 pb-20 scrollable-content">
+                <!-- Search bar updated to include an icon -->
+                <div class="mb-4 relative">
+                    <input type="text" placeholder="Search lecturer by name or course..." class="w-full p-3 pl-10 border border-gray-300 rounded-xl focus:ring-blue-500 focus:border-blue-500">
+                    <span class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                        ${getIcon('search', 'w-5 h-5')}
+                    </span>
+                </div>
+                <!-- Faculty filter buttons -->
+                <div class="flex space-x-2 overflow-x-auto pb-4 hide-scrollbar">
+                    ${['All', ...faculties].map(f => `
+                        <button onclick="filterLecturers('${f}')" class="flex-shrink-0 text-sm py-2 px-4 rounded-full ${f === selectedFaculty ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">
+                            ${f}
+                        </button>
+                    `).join('')}
+                </div>
+                <h2 class="text-xl font-bold text-gray-800 my-4">Available Lecturers</h2>
+                ${listHtml}
+            </div>
+            ${renderNavBar('student')}
+        `;
+        // IMPORTANT FIX: Call createIcons immediately after rendering new HTML content
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    };
+
+    window.viewLecturerSlots = (lecturerId) => {
+        selectedLecturer = lecturers.find(l => l.id === lecturerId);
+        if (!selectedLecturer) return;
+
+        const slots = availability[lecturerId] || [];
+        const slotHtml = slots.length > 0 ? slots.map(slot => `
+            <div onclick="openBookingModal('${slot.day}', '${slot.time}', '${slot.type}', ${selectedLecturer.id})" class="p-4 border border-gray-200 rounded-xl mb-3 flex justify-between items-center bg-green-50 hover:bg-green-100 cursor-pointer transition">
+                <div>
+                    <p class="font-bold text-green-700">${slot.day}</p>
+                    <p class="text-lg font-extrabold text-gray-800">${slot.time}</p>
+                </div>
+                <span class="text-sm bg-blue-100 text-blue-600 px-3 py-1 rounded-full">${slot.type}</span>
+            </div>
+        `).join('') : '<p class="text-center text-gray-500 p-8 bg-gray-50 rounded-xl">No available slots set for this lecturer.</p>';
+
+        const content = `
+            <h3 class="text-2xl font-bold text-blue-800 mb-2">${selectedLecturer.name}</h3>
+            <p class="text-gray-500 mb-4">${selectedLecturer.title} - ${selectedLecturer.faculty}</p>
+            <button onclick="closeModal()" class="absolute top-5 right-5 text-gray-400 hover:text-gray-700">
+                ${getIcon('x', 'w-6 h-6')}
+            </button>
+            <h4 class="text-xl font-semibold mt-4 mb-3">Available Time Slots</h4>
+            <div class="max-h-80 overflow-y-auto pr-2">
+                ${slotHtml}
+            </div>
+        `;
+        openModal(content); // openModal will call createIcons
+    };
+
+    window.openBookingModal = (day, time, type, lecturerId) => {
+        const lecturer = lecturers.find(l => l.id === lecturerId);
+        if (!lecturer) return;
+        selectedLecturer = lecturer;
+        selectedSlot = { day, time, type, lecturerName: lecturer.name };
+
+        const content = `
+            <h3 class="xl font-bold text-blue-800 mb-4">Confirm Appointment</h3>
+            <button onclick="closeModal()" class="absolute top-5 right-5 text-gray-400 hover:text-gray-700">
+                ${getIcon('x', 'w-6 h-6')}
+            </button>
+            <div class="space-y-3 p-4 bg-gray-50 rounded-xl mb-4 border border-gray-200">
+                <p class="font-semibold text-gray-700">Lecturer: <span class="text-blue-600">${lecturer.name}</span></p>
+                <p class="font-semibold text-gray-700">Time: <span class="text-green-600">${day} at ${time}</span></p>
+                <p class="font-semibold text-gray-700">Type: <span class="bg-blue-100 text-blue-600 px-2 py-0.5 text-sm rounded-full">${type}</span></p>
+            </div>
+
+            <label class="block text-sm font-medium text-gray-700 mt-4">Meeting Purpose (Notes Section)</label>
+            <textarea id="purpose-notes" rows="3" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 mt-1" placeholder="e.g., Discussing FYP draft, need advice on career path..."></textarea>
+
+            <button onclick="submitBooking()" class="btn-primary w-full mt-6 flex items-center justify-center">
+                ${getIcon('check-circle', 'w-5 h-5 mr-2')}
+                Confirm Booking
+            </button>
+        `;
+        openModal(content); // openModal will call createIcons
+    };
+
+    window.submitBooking = () => {
+        const notes = document.getElementById('purpose-notes').value || 'No specific purpose provided.';
+        const newAppointment = {
+            id: 'a' + (appointments.length + 1),
+            lecturerId: selectedLecturer.id,
+            lecturerName: selectedLecturer.name,
+            day: selectedSlot.day,
+            time: selectedSlot.time,
+            student: `${currentStudent.name} (${currentStudent.id})`,
+            type: selectedSlot.type,
+            purpose: notes,
+            status: 'Booked',
+        };
+        appointments.push(newAppointment);
+
+        // Remove the booked slot from availability (simulated)
+        const lecturerAvailability = availability[selectedLecturer.id];
+        const slotIndex = lecturerAvailability.findIndex(s => s.day === selectedSlot.day && s.time === selectedSlot.time);
+        if (slotIndex > -1) {
+            lecturerAvailability.splice(slotIndex, 1);
+        }
+
+        closeModal();
+        renderStudentAppointments('Booking Confirmed!', 'Your appointment has been successfully booked. You will receive an email reminder 24 hours prior.');
+    };
+    
+    window.renderStudentAppointments = (alertTitle = null, alertMessage = null) => {
+        currentView = 'student_appointments';
+        const studentMeetings = appointments.filter(a => a.student === `${currentStudent.name} (${currentStudent.id})`);
+
+        const listHtml = studentMeetings.map(a => `
+            <div class="bg-white p-4 rounded-xl shadow-md mb-3 border-l-4 ${a.status === 'Booked' ? 'border-blue-500' : 'border-red-500'}">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-semibold uppercase ${a.status === 'Booked' ? 'text-blue-500' : 'text-red-500'}">${a.status}</p>
+                        <h4 class="text-lg font-bold text-gray-800 mt-1">${a.day} at ${a.time}</h4>
+                        <p class="text-sm text-gray-600">${a.lecturerName} (${a.type})</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="showRescheduleCancelModal('${a.id}', 'Reschedule')" class="text-sm text-yellow-600 hover:text-yellow-700 p-1 rounded-full hover:bg-yellow-50">${getIcon('refresh-cw', 'w-4 h-4')}</button>
+                        <button onclick="showRescheduleCancelModal('${a.id}', 'Cancel')" class="text-sm text-red-600 hover:text-red-700 p-1 rounded-full hover:bg-red-50">${getIcon('trash-2', 'w-4 h-4')}</button>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 mt-3 border-t pt-2">Purpose: ${a.purpose}</p>
+            </div>
+        `).join('') || '<p class="text-center text-gray-500 p-8 bg-gray-50 rounded-xl mt-4">You have no upcoming appointments.</p>';
+
+        const alertHtml = alertTitle ? `
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-xl mb-5" role="alert">
+                <p class="font-bold">${alertTitle}</p>
+                <p class="text-sm">${alertMessage}</p>
+            </div>
+        ` : '';
+
+
+        app.innerHTML = `
+            ${renderHeader('My Scheduled MeetUps')}
+            <div class="p-5 pb-20 scrollable-content">
+                ${alertHtml}
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Upcoming Meetings</h2>
+                ${listHtml}
+            </div>
+            ${renderNavBar('student')}
+        `;
+        // IMPORTANT FIX: Call createIcons immediately after rendering new HTML content
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    };
+
+    window.showRescheduleCancelModal = (id, action) => {
+        const appointment = appointments.find(a => a.id === id);
+        if (!appointment) return;
+
+        const content = `
+            <h3 class="xl font-bold ${action === 'Cancel' ? 'text-red-600' : 'text-yellow-600'} mb-4">${action} Appointment</h3>
+            <button onclick="closeModal()" class="absolute top-5 right-5 text-gray-400 hover:text-gray-700">
+                ${getIcon('x', 'w-6 h-6')}
+            </button>
+            <p class="mb-4">Are you sure you want to ${action.toLowerCase()} this meeting?</p>
+            <div class="space-y-3 p-4 bg-gray-50 rounded-xl mb-6 border border-gray-200">
+                <p class="font-semibold text-gray-700">Lecturer: <span class="text-blue-600">${appointment.lecturerName}</span></p>
+                <p class="font-semibold text-gray-700">Time: <span class="text-green-600">${appointment.day} at ${appointment.time}</span></p>
+            </div>
+
+            <button onclick="${action.toLowerCase()}Appointment('${id}')" class="w-full font-semibold py-3 px-6 rounded-xl shadow-lg transition duration-150 ${action === 'Cancel' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-yellow-500 hover:bg-yellow-600 text-white'}">
+                Yes, ${action} Now
+            </button>
+            <button onclick="closeModal()" class="w-full mt-2 text-gray-500 hover:text-gray-800 py-2">Keep Appointment</button>
+        `;
+        openModal(content); // openModal will call createIcons
+    };
+
+    window.cancelAppointment = (id) => {
+        // Find and remove the appointment (simulated)
+        const index = appointments.findIndex(a => a.id === id);
+        if (index > -1) {
+            appointments.splice(index, 1);
+        }
+        closeModal();
+        renderStudentAppointments('Appointment Cancelled!', 'The appointment has been successfully cancelled. The lecturer has been notified.');
+    };
+
+    // Reschedule is simulated as just a confirmation, in a real app it would navigate back to the booking screen.
+    window.rescheduleAppointment = (id) => {
+        closeModal();
+        renderStudentAppointments('Reschedule Initiated', 'Please select a new slot from the booking page. This current slot is now marked for cancellation.');
+    };
+
+
+    // --- Lecturer View Functions ---
+    window.renderLecturerAppointments = (alertTitle = null, alertMessage = null) => {
+        currentView = 'lecturer_appointments';
+        // Filter appointments for the logged-in lecturer (ID 1)
+        const lecturerMeetings = appointments.filter(a => a.lecturerId === loggedInLecturerId);
+
+        const listHtml = lecturerMeetings.map(a => `
+            <div class="bg-white p-4 rounded-xl shadow-md mb-3 border-l-4 ${a.status === 'Booked' ? 'border-blue-500' : 'border-orange-500'}">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-semibold uppercase ${a.status === 'Booked' ? 'text-blue-500' : 'text-orange-500'}">${a.status}</p>
+                        <h4 class="text-lg font-bold text-gray-800 mt-1">${a.day} at ${a.time}</h4>
+                        <p class="text-sm text-gray-600">Student: ${a.student}</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="viewAppointmentDetails('${a.id}')" class="text-sm text-gray-600 hover:text-blue-700 p-1 rounded-full hover:bg-blue-50">${getIcon('info', 'w-4 h-4')}</button>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 mt-3 border-t pt-2">Type: ${a.type}</p>
+            </div>
+        `).join('') || '<p class="text-center text-gray-500 p-8 bg-gray-50 rounded-xl mt-4">You have no upcoming appointments.</p>';
+
+        const alertHtml = alertTitle ? `
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-xl mb-5" role="alert">
+                <p class="font-bold">${alertTitle}</p>
+                <p class="text-sm">${alertMessage}</p>
+            </div>
+        ` : '';
+
+        app.innerHTML = `
+            ${renderHeader('Incoming MeetUps')}
+            <div class="p-5 pb-20 scrollable-content">
+                ${alertHtml}
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Your Appointment Schedule</h2>
+                ${listHtml}
+            </div>
+            ${renderNavBar('lecturer')}
+        `;
+        // IMPORTANT FIX: Call createIcons immediately after rendering new HTML content
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    };
+
+    window.viewAppointmentDetails = (id) => {
+        const appointment = appointments.find(a => a.id === id);
+        if (!appointment) return;
+
+        const content = `
+            <h3 class="text-2xl font-bold text-blue-800 mb-2">Appointment Details</h3>
+            <button onclick="closeModal()" class="absolute top-5 right-5 text-gray-400 hover:text-gray-700">
+                ${getIcon('x', 'w-6 h-6')}
+            </button>
+            <div class="space-y-3 p-4 bg-gray-50 rounded-xl mb-4 border border-gray-200">
+                <p class="font-semibold text-gray-700">Student: <span class="text-gray-800">${appointment.student}</span></p>
+                <p class="font-semibold text-gray-700">Time: <span class="text-green-600">${appointment.day} at ${appointment.time}</span></p>
+                <p class="font-semibold text-gray-700">Type: <span class="bg-blue-100 text-blue-600 px-2 py-0.5 text-sm rounded-full">${appointment.type}</span></p>
+            </div>
+            <h4 class="text-md font-semibold mt-4 mb-2 text-gray-700">Purpose (Student Notes)</h4>
+            <div class="p-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-800">
+                ${appointment.purpose}
+            </div>
+            
+            <button onclick="closeModal()" class="btn-primary w-full mt-6 bg-green-600 hover:bg-green-700 flex items-center justify-center">
+                ${getIcon('phone', 'w-5 h-5 mr-2')}
+                Contact Student (Simulated)
+            </button>
+        `;
+        openModal(content); // openModal will call createIcons
+    };
+
+    window.renderLecturerAvailability = (alertTitle = null, alertMessage = null) => {
+        currentView = 'lecturer_dashboard';
+        const currentSlots = availability[loggedInLecturerId] || [];
+
+        const listHtml = currentSlots.length > 0 ? currentSlots.map(slot => {
+            // Determine icon based on slot type
+            let iconName = 'user-check';
+            if (slot.type === 'Zoom') {
+                iconName = 'video';
+            } else if (slot.type === 'In-person') {
+                iconName = 'map-pin';
+            } else if (slot.type === 'Phone') {
+                iconName = 'phone';
+            }
+            
+            return `
+            <div class="flex justify-between items-center p-4 bg-white rounded-xl shadow-md mb-3 border-l-4 border-green-500">
+                <div class="flex items-center">
+                    <span class="text-green-600 mr-3">${getIcon(iconName, 'w-5 h-5')}</span>
+                    <div>
+                        <p class="font-bold text-gray-800">${slot.day}</p>
+                        <p class="text-sm text-green-600">${slot.time} (${slot.type})</p>
+                    </div>
+                </div>
+                <button onclick="removeSlot('${slot.id}')" class="text-red-500 hover:text-red-700 transition p-1 rounded-full hover:bg-red-50">
+                    ${getIcon('trash-2', 'w-5 h-5')}
+                </button>
+            </div>
+        `}).join('') : '<p class="text-center text-gray-500 p-8 bg-gray-50 rounded-xl mt-4">You have no available slots set for students to book.</p>';
+        
+        const alertHtml = alertTitle ? `
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-xl mb-5" role="alert">
+                <p class="font-bold">${alertTitle}</p>
+                <p class="text-sm">${alertMessage}</p>
+            </div>
+        ` : '';
+
+        app.innerHTML = `
+            ${renderHeader('Set Your Availability')}
+            <div class="p-5 pb-20 scrollable-content">
+                ${alertHtml}
+                <button onclick="openSetAvailabilityModal()" class="btn-primary w-full mb-6 flex items-center justify-center">
+                    ${getIcon('calendar-plus', 'w-5 h-5 mr-2')}
+                    Add New Availability Slot
+                </button>
+
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Current Open Slots</h2>
+                ${listHtml}
+            </div>
+            ${renderNavBar('lecturer')}
+        `;
+        // IMPORTANT FIX: Call createIcons immediately after rendering new HTML content
+        if (typeof lucide !== 'undefined' && lucide.createIcons) {
+            lucide.createIcons();
+        }
+    };
+
+    window.openSetAvailabilityModal = () => {
+        const content = `
+            <h3 class="text-2xl font-bold text-blue-800 mb-4">Set New Slot</h3>
+            <button onclick="closeModal()" class="absolute top-5 right-5 text-gray-400 hover:text-gray-700">
+                ${getIcon('x', 'w-6 h-6')}
+            </button>
+            <div class="space-y-4">
+                <label class="block text-sm font-medium text-gray-700">Date</label>
+                <input type="date" id="slot-date" value="${new Date().toISOString().split('T')[0]}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                
+                <label class="block text-sm font-medium text-gray-700">Time</label>
+                <input type="time" id="slot-time" value="14:00" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                
+                <label class="block text-sm font-medium text-gray-700">Meeting Type</label>
+                <select id="slot-type" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <option value="In-person">In-person (Office)</option>
+                    <option value="Zoom">Online (Zoom/Meet)</option>
+                    <option value="Phone">Phone Call</option>
+                </select>
+            </div>
+            <div id="modal-error"></div>
+            <button onclick="submitNewSlot()" class="btn-primary w-full mt-6 flex items-center justify-center">
+                ${getIcon('save', 'w-5 h-5 mr-2')}
+                Publish Slot
+            </button>
+        `;
+        openModal(content); // openModal will call createIcons
+    };
+
+    window.submitNewSlot = () => {
+        const dateInput = document.getElementById('slot-date').value;
+        const time = document.getElementById('slot-time').value;
+        const type = document.getElementById('slot-type').value;
+
+        if (!dateInput || !time || !type) {
+            showModalError("Please fill in all fields to publish the slot.");
+            return;
+        }
+
+        const date = new Date(dateInput);
+        const day = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        // Use a safer way to parse time in case of browser inconsistencies
+        const time12hr = new Date('2000/01/01 ' + time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+        const newSlot = {
+            id: 's' + Date.now(),
+            day: day,
+            time: time12hr,
+            type: type
+        };
+
+        // Add to the lecturer's slots
+        if (!availability[loggedInLecturerId]) availability[loggedInLecturerId] = [];
+        availability[loggedInLecturerId].push(newSlot);
+
+        closeModal();
+        renderLecturerAvailability('Slot Added!', 'The new slot has been successfully published for students to book.');
+    };
+
+    window.removeSlot = (id) => {
+        // Simulated removal
+        const lecturerAvailability = availability[loggedInLecturerId];
+        const index = lecturerAvailability.findIndex(s => s.id === id);
+        if (index > -1) {
+            lecturerAvailability.splice(index, 1);
+        }
+        renderLecturerAvailability('Slot Removed!', 'The availability slot has been removed.');
+    };
+
+    // --- Core Navigation and Logic ---
+
+    window.login = (role) => {
+        userRole = role;
+        if (role === 'student') {
+            setView('student_dashboard');
+        } else if (role === 'lecturer') {
+            setView('lecturer_dashboard');
+        }
+    };
+
+    window.logout = () => {
+        userRole = null;
+        setView('landing');
+    };
+
+    window.setView = (viewName) => {
+        currentView = viewName;
+        // Reset filter when changing primary views for simplicity
+        if (viewName === 'student_dashboard') {
+            selectedFaculty = 'All'; 
+            renderLecturerList();
+        } else if (viewName === 'landing') {
+            renderLanding();
+        } else if (viewName === 'lecturer_dashboard') {
+            renderLecturerAvailability();
+        } else if (viewName === 'student_appointments') {
+            renderStudentAppointments();
+        } else if (viewName === 'lecturer_appointments') {
+            renderLecturerAppointments();
+        }
+    };
+
+    // Start the application immediately on window load to ensure Lucide is available
+    window.onload = () => {
+        setView('landing');
+    };
+</script>
+
+</body>
+</html>
