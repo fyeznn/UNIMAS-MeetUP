@@ -543,7 +543,7 @@
 
     window.showRescheduleCancelModal = (id, action) => {
         if (action === 'Reschedule') {
-            openRescheduleModal(id);
+            openRescheduleModal(id); // Student still uses the slot-based system
             return;
         }
 
@@ -617,10 +617,98 @@
             return;
         }
 
-        // Use viewLecturerSlots with isReschedule=true to show slots and set the right action
-        viewLecturerSlots(appointment.lecturerId, true); 
+        // --- MODIFICATION: Lecturer gets the manual input modal, Student gets the slot picker ---
+        if (userRole === 'lecturer') {
+            openManualRescheduleModal(appointment);
+        } else {
+            // Student flow remains selecting from available slots
+            viewLecturerSlots(appointment.lecturerId, true); 
+        }
+        // --- END MODIFICATION ---
     };
 
+    /**
+     * NEW FUNCTION: Opens the modal for the lecturer to manually input new date/time/type.
+     */
+    window.openManualRescheduleModal = (appointment) => {
+        // Parse current date/time to fill input defaults
+        // E.g., 'Wed, Oct 25' needs to be converted to a full date string like '2025-10-25'
+        // This is complex and relies on assumption, so for prototype, we'll try to guess/default or ask for full input.
+        
+        // A simple way to get a date string from 'Day, Mon D' is to try and construct a Date object
+        const parts = appointment.day.split(', ')[1].split(' '); // e.g., ['Oct', '25']
+        const monthIndex = monthAbbreviations.findIndex(m => m === parts[0]);
+        // Assume current year for simplicity in prototype, this is a real-world edge case.
+        const currentYear = new Date().getFullYear(); 
+        const dateString = `${currentYear}-${(monthIndex + 1).toString().padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+        
+        // Convert 12hr time to 24hr for time input
+        const time12hr = appointment.time; // e.g., '10:00 AM'
+        const [time, modifier] = time12hr.split(' ');
+        let [hours, minutes] = time.split(':');
+        if (hours === '12') {
+            hours = '00';
+        }
+        if (modifier === 'PM') {
+            hours = parseInt(hours, 10) + 12;
+        }
+        const time24hr = `${hours.toString().padStart(2, '0')}:${minutes}`;
+
+        const content = `
+            <h3 class="text-2xl font-bold text-yellow-600 mb-2">Manual Reschedule</h3>
+            <p class="text-gray-500 mb-4">For: <span class="font-semibold">${appointment.student}</span></p>
+            <button onclick="closeModal()" class="absolute top-5 right-5 text-gray-400 hover:text-gray-700">
+                ${getIcon('x', 'w-6 h-6')}
+            </button>
+            
+            <div class="space-y-4">
+                <p class="text-sm font-semibold text-gray-700">Original Time: ${appointment.day} at ${appointment.time} (${appointment.type})</p>
+
+                <label class="block text-sm font-medium text-gray-700">New Date</label>
+                <input type="date" id="new-slot-date" value="${dateString}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                
+                <label class="block text-sm font-medium text-gray-700">New Time</label>
+                <input type="time" id="new-slot-time" value="${time24hr}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                
+                <label class="block text-sm font-medium text-gray-700">New Meeting Type</label>
+                <select id="new-slot-type" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <option value="In-person" ${appointment.type === 'In-person' ? 'selected' : ''}>In-person (Office)</option>
+                    <option value="Zoom" ${appointment.type === 'Zoom' ? 'selected' : ''}>Online (Zoom/Meet)</option>
+                    <option value="Phone" ${appointment.type === 'Phone' ? 'selected' : ''}>Phone Call</option>
+                </select>
+            </div>
+            <div id="modal-error"></div>
+
+            <button onclick="submitManualReschedule('${appointment.id}')" class="w-full font-semibold py-3 px-6 rounded-xl shadow-lg transition duration-150 bg-yellow-600 hover:bg-yellow-700 text-white mt-6 flex items-center justify-center">
+                ${getIcon('save', 'w-5 h-5 mr-2')}
+                Confirm Manual Reschedule
+            </button>
+        `;
+        openModal(content);
+    };
+
+    /**
+     * NEW FUNCTION: Handles the submission of the manual reschedule form (Lecturer side).
+     */
+    window.submitManualReschedule = (appointmentId) => {
+        const dateInput = document.getElementById('new-slot-date').value;
+        const timeInput = document.getElementById('new-slot-time').value;
+        const typeInput = document.getElementById('new-slot-type').value;
+
+        if (!dateInput || !timeInput || !typeInput) {
+            showModalError("Please fill in all fields for the new time and type.");
+            return;
+        }
+
+        const date = new Date(dateInput);
+        const newDay = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        const newTime = new Date('2000/01/01 ' + timeInput).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+        // IMPORTANT: The lecturer is manually setting this time, so no pre-existing slot is involved.
+        // We pass a dummy/null slotId and let selectNewSlotForReschedule handle the logic.
+        selectNewSlotForReschedule(appointmentId, '', loggedInLecturerId, newDay, newTime, typeInput, null); 
+    };
+    
     // Shared function to perform the actual reschedule logic
     window.selectNewSlotForReschedule = (appointmentId, lecturerName, lecturerId, newDay, newTime, newType, newSlotId) => {
         const currentAppointment = appointments.find(a => a.id === appointmentId);
@@ -639,6 +727,7 @@
         currentAppointment.day = newDay;
         currentAppointment.time = newTime;
         currentAppointment.type = newType;
+        // If the update came from a slot selection (student flow), use the newSlotId. Otherwise, set to null (lecturer flow).
         currentAppointment.slotId = newSlotId; 
         
         // Set notification if lecturer is the one rescheduling
@@ -650,6 +739,7 @@
         }
 
         // 3. Update Availability: Return Old Slot (ONLY if the old slot exists and isn't already re-added)
+        // This step is crucial only if an old slot was *actually* booked.
         if (oldSlotId) {
             const lecturerAvailability = availability[lecturerId];
             if (lecturerAvailability) {
@@ -666,11 +756,15 @@
         }
         
         // 4. Update Availability: Consume New Slot
-        const lecturerAvailability = availability[lecturerId];
-        const newSlotIndex = lecturerAvailability.findIndex(s => s.id === newSlotId);
-        if (newSlotIndex > -1) {
-            lecturerAvailability.splice(newSlotIndex, 1);
+        // Only consume the new slot if a newSlotId was provided (Student flow)
+        if (newSlotId) {
+            const lecturerAvailability = availability[lecturerId];
+            const newSlotIndex = lecturerAvailability.findIndex(s => s.id === newSlotId);
+            if (newSlotIndex > -1) {
+                lecturerAvailability.splice(newSlotIndex, 1);
+            }
         }
+        // NOTE: For the manual lecturer reschedule, no slot is consumed as it may not be in the 'availability' list.
 
         closeModal();
         
